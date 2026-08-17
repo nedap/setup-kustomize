@@ -2,18 +2,38 @@ name: 'Install Kustomize'
 description: 'Install Kustomize and add it to the $PATH'
 inputs:
   kustomize-version:
-    description: 'The kustomize version to download (if necessary) and use'
+    description: 'The kustomize version to download and use, without the leading v'
     required: false
+    default: '5.8.1'
 runs:
   using: 'composite'
   steps:
-  - run: curl -O "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
-    shell: bash
-  - run: bash ./install_kustomize.sh "$KUSTOMIZE_VERSION"
-    shell: bash
-    env:
-      KUSTOMIZE_VERSION: ${{ inputs.kustomize-version }}
-  - run: mv kustomize /usr/local/bin/kustomize && chmod +x /usr/local/bin/kustomize
-    shell: bash
-  - run: rm -f ./install_kustomize.sh
-    shell: bash
+    - shell: bash
+      env:
+        KUSTOMIZE_VERSION: ${{ inputs.kustomize-version }}
+      run: |
+        set -euo pipefail
+        version="${KUSTOMIZE_VERSION#v}"
+
+        case "$(uname -s)" in
+          Linux) os=linux ;;
+          Darwin) os=darwin ;;
+          *) echo "unsupported os: $(uname -s)" >&2; exit 1 ;;
+        esac
+
+        case "$(uname -m)" in
+          x86_64 | amd64) arch=amd64 ;;
+          arm64 | aarch64) arch=arm64 ;;
+          *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+        esac
+
+        # Download the release asset directly, rather than fetching the upstream
+        # installer from master and letting it resolve "latest" through the
+        # GitHub API. Both of those failed here without failing the step.
+        url="https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${version}/kustomize_v${version}_${os}_${arch}.tar.gz"
+        echo "Installing kustomize v${version} (${os}/${arch})"
+        curl -fsSL "$url" | tar -xz kustomize
+
+        install -m 0755 kustomize /usr/local/bin/kustomize
+        rm -f kustomize
+        kustomize version
